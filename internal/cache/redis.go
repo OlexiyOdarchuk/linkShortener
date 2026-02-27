@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"linkshortener/internal/types"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -28,12 +29,12 @@ func ConnectRedis(url, password string) (*Cache, error) {
 	return &Cache{rdb: rdb}, nil
 }
 
-func (c *Cache) Get(ctx context.Context, key string) (string, error) {
-	return c.rdb.Get(ctx, key).Result()
+func (c *Cache) Get(ctx context.Context, shortLine string) (string, error) {
+	return c.rdb.Get(ctx, shortLine).Result()
 }
 
-func (c *Cache) Set(ctx context.Context, key string, value string, expiration time.Duration) error {
-	return c.rdb.Set(ctx, key, value, expiration).Err()
+func (c *Cache) Set(ctx context.Context, linkPair types.LinkPair, expiration time.Duration) error {
+	return c.rdb.Set(ctx, linkPair.ShortLink, linkPair.OriginalLink, expiration).Err()
 }
 
 func (c *Cache) Delete(ctx context.Context, key string) error {

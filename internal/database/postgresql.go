@@ -3,6 +3,7 @@ package database
 import (
 	"embed"
 	"errors"
+	"linkshortener/internal/types"
 	"log/slog"
 
 	"github.com/jmoiron/sqlx"
@@ -14,17 +15,6 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
-
-//type IDatabase interface {
-//	CreateUser(userId string) error
-//	GetAllLinksByUser(userId string) ([]types.LinkPair, error)
-//	DeleteAllLinksByUser(userId string) error
-//
-//	CreateShortLink(userId, originalLink string) (types.LinkPair, error)
-//	UpdateLink(userId string, shortLink types.ShortLink, oldLink, newLink types.OriginalLink) (types.LinkPair, error)
-//	DeleteLink(userId string, shortLink string) error
-//	GetLink(shortLink types.ShortLink) (types.LinkPair, error)
-//}
 
 type Database struct {
 	db *sqlx.DB
@@ -73,4 +63,37 @@ func (db *Database) RunMigrations() error {
 
 func (db *Database) Close() error {
 	return db.db.Close()
+}
+
+func (db *Database) CreateUser(userId string) error {
+	// TODO
+	return nil
+}
+func (db *Database) GetAllLinksByUser(userId string) ([]types.LinkPair, error) {
+	// TODO
+	return nil, nil
+}
+func (db *Database) DeleteAllLinksByUser(userId string) error {
+	// TODO
+	return nil
+}
+
+func (db *Database) CreateShortLink(userId, originalLink string) (types.LinkPair, error) {
+	// TODO
+	return types.LinkPair{OriginalLink: "", ShortLink: ""}, nil
+}
+
+func (db *Database) UpdateLink(userId string, oldPair types.LinkPair, newLink string) (types.LinkPair, error) {
+	// TODO
+	return types.LinkPair{ShortLink: oldPair.ShortLink, OriginalLink: newLink}, nil
+}
+
+func (db *Database) DeleteLink(userId string, shortLink string) error {
+	// TODO
+	return nil
+}
+
+func (db *Database) GetLink(shortLink string) (string, error) {
+	// TODO
+	return "", nil
 }
