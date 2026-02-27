@@ -1,0 +1,88 @@
+  # yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  GO_BIN: go
+  DOCKER_COMPOSE: docker compose
+  APP_CMD: ./cmd/server
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list-all
+
+  run:
+    desc: Run application locally
+    cmds:
+      - '{{.GO_BIN}} run {{.APP_CMD}}'
+
+  build:
+    desc: Build all packages
+    cmds:
+      - '{{.GO_BIN}} build ./...'
+
+  test:
+    desc: Run tests
+    cmds:
+      - '{{.GO_BIN}} test ./...'
+
+  fmt:
+    desc: Format Go code
+    cmds:
+      - '{{.GO_BIN}} fmt ./...'
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - '{{.GO_BIN}} vet ./...'
+
+  check:
+    desc: Run format, vet, test
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: test
+
+  up:
+    desc: Start all services with Docker Compose
+    cmds:
+      - '{{.DOCKER_COMPOSE}} up -d --build'
+
+  down:
+    desc: Stop and remove services
+    cmds:
+      - '{{.DOCKER_COMPOSE}} down'
+
+  start:
+    desc: Start existing containers
+    cmds:
+      - '{{.DOCKER_COMPOSE}} start'
+
+  stop:
+    desc: Stop running containers
+    cmds:
+      - '{{.DOCKER_COMPOSE}} stop'
+
+  restart:
+    desc: Restart running containers
+    cmds:
+      - '{{.DOCKER_COMPOSE}} restart'
+
+  pull:
+    desc: Download Go dependencies
+    cmds:
+      - '{{.GO_BIN}} mod download'
+
+  db-shell:
+    desc: Open psql shell in postgres container
+    cmds:
+      - '{{.DOCKER_COMPOSE}} exec postgres psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}'
+
+  logs:
+    desc: Show Docker Compose logs
+    cmds:
+      - '{{.DOCKER_COMPOSE}} logs -f'
