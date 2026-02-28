@@ -2,3 +2,4 @@
 data
 .idea
 GeoLite2-City.mmdb
+.gocache

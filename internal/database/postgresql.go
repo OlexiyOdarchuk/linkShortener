@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"linkshortener/internal/types"
@@ -20,8 +21,8 @@ type Database struct {
 	db *sqlx.DB
 }
 
-func ConnectPostgres(url string) (*Database, error) {
-	db, err := sqlx.Connect("postgres", url)
+func ConnectPostgres(ctx context.Context, url string) (*Database, error) {
+	db, err := sqlx.ConnectContext(ctx, "postgres", url)
 	if err != nil {
 		return nil, err
 	}
@@ -65,35 +66,35 @@ func (db *Database) Close() error {
 	return db.db.Close()
 }
 
-func (db *Database) CreateUser(userId string) error {
+func (db *Database) CreateUser(ctx context.Context, userId string) error {
 	// TODO
 	return nil
 }
-func (db *Database) GetAllLinksByUser(userId string) ([]types.LinkPair, error) {
+func (db *Database) GetAllLinksByUser(ctx context.Context, userId string) ([]types.LinkPair, error) {
 	// TODO
 	return nil, nil
 }
-func (db *Database) DeleteAllLinksByUser(userId string) error {
+func (db *Database) DeleteAllLinksByUser(ctx context.Context, userId string) error {
 	// TODO
 	return nil
 }
 
-func (db *Database) CreateShortLink(userId, originalLink string) (types.LinkPair, error) {
+func (db *Database) CreateShortLink(ctx context.Context, userId, originalLink string) (types.LinkPair, error) {
 	// TODO
 	return types.LinkPair{OriginalLink: "", ShortLink: ""}, nil
 }
 
-func (db *Database) UpdateLink(userId string, oldPair types.LinkPair, newLink string) (types.LinkPair, error) {
+func (db *Database) UpdateLink(ctx context.Context, userId string, oldPair types.LinkPair, newLink string) (types.LinkPair, error) {
 	// TODO
 	return types.LinkPair{ShortLink: oldPair.ShortLink, OriginalLink: newLink}, nil
 }
 
-func (db *Database) DeleteLink(userId string, shortLink string) error {
+func (db *Database) DeleteLink(ctx context.Context, userId string, shortLink string) error {
 	// TODO
 	return nil
 }
 
-func (db *Database) GetLink(shortLink string) (string, error) {
+func (db *Database) GetLink(ctx context.Context, shortLink string) (string, error) {
 	// TODO
 	return "", nil
 }

@@ -1,24 +1,51 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"linkshortener/internal/cache"
 	"linkshortener/internal/database"
 	"net/http"
+	"time"
 )
 
 type Server struct {
+	port      string
 	database  *database.Database
 	analytics *database.Analytics
 	cache     *cache.Cache
 }
 
-func (s *Server) Start(port string) error {
+func NewServer(port string, database *database.Database, cacheDB *cache.Cache, analytics *database.Analytics) *Server {
+	return &Server{
+		port:      port,
+		database:  database,
+		analytics: analytics,
+		cache:     cacheDB,
+	}
+}
+
+func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{code}", s.handlerRedirect)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	srv := &http.Server{
+		Addr:    ":" + s.port,
+		Handler: mux,
+	}
+	errChan := make(chan error, 1)
+	go func() { errChan <- srv.ListenAndServe() }()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+		return nil
+	case err := <-errChan:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
 		return err
 	}
-	return nil
 }
 
 func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {

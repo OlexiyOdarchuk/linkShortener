@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"linkshortener/internal/cache"
 	"linkshortener/internal/database"
 	"log/slog"
@@ -28,21 +29,30 @@ func NewTelegramBot(tgToken string, db *database.Database, cacheDB *cache.Cache,
 		return nil, err
 	}
 
-	return &TelegramBot{
+	b := &TelegramBot{
 		tgBot:    bot,
 		db:       db,
 		cache:    cacheDB,
 		analytic: analytics,
-	}, nil
+	}
+
+	return b, nil
 }
 
-func (b *TelegramBot) Start() {
+func (b *TelegramBot) Start(ctx context.Context) error {
 	slog.Info("Telegram bot started", "bot_username", b.tgBot.Me.Username)
 
 	b.tgBot.Handle("/start", b.handleStart)
 	b.tgBot.Handle(tele.OnText, b.handleMessage)
 
+	go func() {
+		<-ctx.Done()
+		slog.Info("Telegram bot shutting down")
+		b.tgBot.Stop()
+	}()
+
 	b.tgBot.Start()
+	return nil
 }
 
 func (b *TelegramBot) handleStart(c tele.Context) error {

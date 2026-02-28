@@ -1,10 +1,12 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -21,6 +23,10 @@ type Analytics struct {
 	db           *sql.DB
 	clicksBuffer chan ClickData
 	geo          *geoip2.Reader
+	workerCancel context.CancelFunc
+	workerWG     sync.WaitGroup
+	startOnce    sync.Once
+	closeOnce    sync.Once
 }
 
 type ClickData struct {
@@ -31,7 +37,7 @@ type ClickData struct {
 	Referer   string `json:"referer"`
 }
 
-func ConnectClickHouse(addr, user, pass, dbName string) (*Analytics, error) {
+func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*Analytics, error) {
 	conn := clickhouse.OpenDB(&clickhouse.Options{
 		Addr: []string{addr},
 		Auth: clickhouse.Auth{
@@ -44,7 +50,11 @@ func ConnectClickHouse(addr, user, pass, dbName string) (*Analytics, error) {
 			Method: clickhouse.CompressionLZ4,
 		},
 	})
-	if err := conn.Ping(); err != nil {
+
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := conn.PingContext(pingCtx); err != nil {
+		slog.Error("failed to ping database", "err", err)
 		return nil, err
 	}
 
@@ -63,8 +73,16 @@ func ConnectClickHouse(addr, user, pass, dbName string) (*Analytics, error) {
 		return nil, err
 	}
 
-	go a.worker()
 	return a, nil
+}
+
+func (a *Analytics) Start(ctx context.Context) {
+	a.startOnce.Do(func() {
+		workerCtx, cancel := context.WithCancel(ctx)
+		a.workerCancel = cancel
+		a.workerWG.Add(1)
+		go a.worker(workerCtx)
+	})
 }
 
 func (a *Analytics) runMigrations() error {
@@ -94,27 +112,44 @@ func (a *Analytics) runMigrations() error {
 	return nil
 }
 
-func (a *Analytics) worker() {
+func (a *Analytics) worker(ctx context.Context) {
+	defer a.workerWG.Done()
+
 	var buffer []ClickData
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case <-ctx.Done():
+			if len(buffer) > 0 {
+				flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := a.recordClicks(flushCtx, buffer); err != nil {
+					slog.Warn("RecordClicks flush on shutdown failed", "error", err, "count", len(buffer))
+				}
+				cancel()
+			}
+			return
 		case data := <-a.clicksBuffer:
 			buffer = append(buffer, data)
 			if len(buffer) >= 100 {
-				err := a.recordClicks(buffer)
+				flushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				err := a.recordClicks(flushCtx, buffer)
+				cancel()
 				if err != nil {
 					slog.Warn("RecordClicks error", "error", err)
+					continue
 				}
 				buffer = nil
 			}
 		case <-ticker.C:
 			if len(buffer) > 0 {
-				err := a.recordClicks(buffer)
+				flushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				err := a.recordClicks(flushCtx, buffer)
+				cancel()
 				if err != nil {
 					slog.Warn("RecordClicks error", "error", err)
+					continue
 				}
 				buffer = nil
 			}
@@ -123,23 +158,34 @@ func (a *Analytics) worker() {
 }
 
 func (a *Analytics) Close() error {
-	if a.geo != nil {
-		err := a.geo.Close()
-		if err != nil {
-			return err
+	var closeErr error
+
+	a.closeOnce.Do(func() {
+		if a.workerCancel != nil {
+			a.workerCancel()
 		}
-	}
-	return a.db.Close()
+		a.workerWG.Wait()
+
+		if a.geo != nil {
+			if err := a.geo.Close(); err != nil {
+				closeErr = err
+				return
+			}
+		}
+		closeErr = a.db.Close()
+	})
+
+	return closeErr
 }
 
-func (a *Analytics) recordClicks(clicks []ClickData) error {
-	tx, err := a.db.Begin()
+func (a *Analytics) recordClicks(ctx context.Context, clicks []ClickData) error {
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare("INSERT INTO clicks (user_id, short_link, country, city, user_agent, referer) VALUES (?, ?, ?, ?, ?, ?)")
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO clicks (user_id, short_link, country, city, user_agent, referer) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -159,9 +205,9 @@ func (a *Analytics) recordClicks(clicks []ClickData) error {
 				}
 			}
 		}
-		_, err = stmt.Exec(data.UserId, data.ShortLink, country, city, data.UserAgent, data.Referer)
+		_, err = stmt.ExecContext(ctx, data.UserId, data.ShortLink, country, city, data.UserAgent, data.Referer)
 		if err != nil {
-			slog.Error("failed to exec insert for click", "error", err, "ip", data.IP)
+			slog.Error("Failed to exec insert for click", "error", err, "ip", data.IP)
 			continue
 		}
 	}
@@ -169,6 +215,11 @@ func (a *Analytics) recordClicks(clicks []ClickData) error {
 }
 
 func (a *Analytics) PushClick(data ClickData) {
+	if a.workerCancel == nil {
+		slog.Warn("Analytics worker is not started, dropping click data", "link", data.ShortLink)
+		return
+	}
+
 	select {
 	case a.clicksBuffer <- data:
 	default:
