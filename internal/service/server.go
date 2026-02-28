@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"linkshortener/internal/database"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -53,7 +55,7 @@ func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	ip := r.Header.Get("X-Forwarded-For")
+	ip := s.getClientIP(r)
 	userAgent := r.UserAgent()
 	referer := r.Referer()
 	linkCache, err := s.shortener.GetLinkCacheByCode(ctx, code)
@@ -78,4 +80,23 @@ func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	http.Redirect(w, r, linkCache.OriginalLink, http.StatusFound)
+}
+
+func (s *Server) getClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
