@@ -31,7 +31,7 @@ type Analytics struct {
 
 type ClickData struct {
 	UserId    int64  `json:"user_id"`
-	ShortLink string `json:"short_link"`
+	ShortCode string `json:"short_code"`
 	IP        string `json:"ip"`
 	UserAgent string `json:"user_agent"`
 	Referer   string `json:"referer"`
@@ -185,7 +185,7 @@ func (a *Analytics) recordClicks(ctx context.Context, clicks []ClickData) error 
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO clicks (user_id, short_link, country, city, user_agent, referer) VALUES (?, ?, ?, ?, ?, ?)")
+	stmt, err := tx.PrepareContext(ctx, "INSERT INTO clicks (user_id, short_code, country, city, user_agent, referer) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (a *Analytics) recordClicks(ctx context.Context, clicks []ClickData) error 
 				}
 			}
 		}
-		_, err = stmt.ExecContext(ctx, data.UserId, data.ShortLink, country, city, data.UserAgent, data.Referer)
+		_, err = stmt.ExecContext(ctx, data.UserId, data.ShortCode, country, city, data.UserAgent, data.Referer)
 		if err != nil {
 			slog.Error("Failed to exec insert for click", "error", err, "ip", data.IP)
 			continue
@@ -216,13 +216,13 @@ func (a *Analytics) recordClicks(ctx context.Context, clicks []ClickData) error 
 
 func (a *Analytics) PushClick(data ClickData) {
 	if a.workerCancel == nil {
-		slog.Warn("Analytics worker is not started, dropping click data", "link", data.ShortLink)
+		slog.Warn("Analytics worker is not started, dropping click data", "link", data.ShortCode)
 		return
 	}
 
 	select {
 	case a.clicksBuffer <- data:
 	default:
-		slog.Warn("Analytics buffer full, dropping click data", "link", data.ShortLink)
+		slog.Warn("Analytics buffer full, dropping click data", "link", data.ShortCode)
 	}
 }

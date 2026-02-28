@@ -66,6 +66,8 @@ services:
     build: .
     container_name: linkshortener-app
     restart: on-failure
+    ports:
+      - "${PORT}:${PORT}"
     depends_on:
       postgres:
         condition: service_healthy

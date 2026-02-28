@@ -23,7 +23,7 @@ tasks:
   build:
     desc: Build all packages
     cmds:
-      - '{{.GO_BIN}} build ./...'
+      - '{{.GO_BIN}} build ./cmd/server'
 
   test:
     desc: Run tests

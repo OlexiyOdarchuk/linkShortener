@@ -13,12 +13,7 @@ type Cache struct {
 	rdb *redis.Client
 }
 
-type LinkCache struct {
-	OriginalURL string `json:"url"`
-	UserID      int64  `json:"uid"`
-}
-
-const linkPrefix = "link:"
+const codePrefix = "code:"
 
 func ConnectRedis(url, password string) (*Cache, error) {
 	rdb := redis.NewClient(&redis.Options{
@@ -37,32 +32,31 @@ func ConnectRedis(url, password string) (*Cache, error) {
 	return &Cache{rdb: rdb}, nil
 }
 
-func (c *Cache) Get(ctx context.Context, shortLink string) (LinkCache, error) {
-	val, err := c.rdb.Get(ctx, linkPrefix+shortLink).Result()
-	if err == redis.Nil {
-		return LinkCache{}, err
-	}
+func (c *Cache) Get(ctx context.Context, shortCode string) (*types.LinkCache, error) {
+	val, err := c.rdb.Get(ctx, codePrefix+shortCode).Result()
+
 	if err != nil {
-		return LinkCache{}, err
+		return nil, err
 	}
-	var data LinkCache
+
+	var data *types.LinkCache
 	err = json.Unmarshal([]byte(val), &data)
 	if err != nil {
-		return LinkCache{}, err
+		return nil, err
 	}
 	return data, nil
 }
 
-func (c *Cache) Set(ctx context.Context, linkPair types.LinkPair, userId int64, expiration time.Duration) error {
-	data, err := json.Marshal(&LinkCache{linkPair.OriginalLink, userId})
+func (c *Cache) Set(ctx context.Context, shortCode string, cache *types.LinkCache, expiration time.Duration) error {
+	data, err := json.Marshal(cache)
 	if err != nil {
 		return err
 	}
-	return c.rdb.Set(ctx, linkPrefix+linkPair.ShortLink, data, expiration).Err()
+	return c.rdb.Set(ctx, codePrefix+shortCode, data, expiration).Err()
 }
 
-func (c *Cache) Delete(ctx context.Context, shortLink string) error {
-	return c.rdb.Del(ctx, linkPrefix+shortLink).Err()
+func (c *Cache) Delete(ctx context.Context, shortCode string) error {
+	return c.rdb.Del(ctx, codePrefix+shortCode).Err()
 }
 
 func (c *Cache) Close() error {

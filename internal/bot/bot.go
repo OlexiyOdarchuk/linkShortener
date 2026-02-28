@@ -2,22 +2,26 @@ package bot
 
 import (
 	"context"
-	"linkshortener/internal/cache"
+	"errors"
 	"linkshortener/internal/database"
+	"linkshortener/internal/service"
 	"log/slog"
+	"net/url"
 	"time"
 
 	tele "gopkg.in/telebot.v4"
 )
 
 type TelegramBot struct {
-	tgBot    *tele.Bot
-	db       *database.Database
-	cache    *cache.Cache
-	analytic *database.Analytics
+	tgBot     *tele.Bot
+	db        *database.Database
+	analytic  *database.Analytics
+	shortener *service.Shortener
 }
 
-func NewTelegramBot(tgToken string, db *database.Database, cacheDB *cache.Cache, analytics *database.Analytics) (*TelegramBot, error) {
+var ErrLinkNotValid = errors.New("link not valid")
+
+func NewTelegramBot(tgToken string, db *database.Database, analytics *database.Analytics, shortener *service.Shortener) (*TelegramBot, error) {
 	pref := tele.Settings{
 		Token:  tgToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -30,10 +34,10 @@ func NewTelegramBot(tgToken string, db *database.Database, cacheDB *cache.Cache,
 	}
 
 	b := &TelegramBot{
-		tgBot:    bot,
-		db:       db,
-		cache:    cacheDB,
-		analytic: analytics,
+		tgBot:     bot,
+		db:        db,
+		analytic:  analytics,
+		shortener: shortener,
 	}
 
 	return b, nil
@@ -57,11 +61,31 @@ func (b *TelegramBot) Start(ctx context.Context) error {
 
 func (b *TelegramBot) handleStart(c tele.Context) error {
 	slog.Debug("command /start received", "user_id", c.Sender().ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := b.db.CreateUser(ctx, c.Sender().ID)
+	if err != nil {
+		slog.Error("failed to create user", "user_id", c.Sender().ID, "error", err)
+		return c.Send("failed to create user in database, please, try again later.")
+	}
 	return c.Send("Привіт! Я допоможу тобі скоротити довге посилання. Просто надішліть його мені.")
 }
 
 func (b *TelegramBot) handleMessage(c tele.Context) error {
-	// TODO
 	newLink := c.Text()
-	return c.Send("Отримав посилання: " + c.Text() + "\nОсь твоє нове скорочене посилання: " + newLink)
+	u, err := url.ParseRequestURI(newLink)
+	if err != nil {
+		slog.Error("failed to parse url", "url", newLink)
+		return c.Send("Ваше посилання не валідне.")
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		slog.Warn("invalid url scheme or host", "url", newLink, "scheme", u.Scheme, "host", u.Host)
+		return c.Send("Посилання повинно починатися з http:// або https:// і містити домен.")
+	}
+	shortLink, err := b.shortener.CreateNewShortLink(newLink, c.Sender().ID)
+	if err != nil {
+		slog.Error("failed to create short link", "error", err)
+		return c.Send("Помилка при створенні посилання. Спробуйте ще раз")
+	}
+	return c.Send("Ось ваше нове скорочене посилання:\n" + shortLink)
 }

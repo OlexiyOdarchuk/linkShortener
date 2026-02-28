@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"linkshortener/internal/cache"
 	"linkshortener/internal/database"
 	"net/http"
 	"time"
@@ -11,17 +11,15 @@ import (
 
 type Server struct {
 	port      string
-	database  *database.Database
 	analytics *database.Analytics
-	cache     *cache.Cache
+	shortener *Shortener
 }
 
-func NewServer(port string, database *database.Database, cacheDB *cache.Cache, analytics *database.Analytics) *Server {
+func NewServer(port string, analytics *database.Analytics, shortener *Shortener) *Server {
 	return &Server{
 		port:      port,
-		database:  database,
 		analytics: analytics,
-		cache:     cacheDB,
+		shortener: shortener,
 	}
 }
 
@@ -49,10 +47,35 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
-	//code := r.PathValue("code")
-	//ctx := r.Context()
-	//ip := r.Header.Get("X-Forwarded-For")
-	//userAgent := r.UserAgent()
-	//referer := r.Referer()
-	// TODO
+	code := r.PathValue("code")
+	if code == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	ip := r.Header.Get("X-Forwarded-For")
+	userAgent := r.UserAgent()
+	referer := r.Referer()
+	linkCache, err := s.shortener.GetLinkCacheByCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	go func() {
+		newClickData := database.ClickData{
+			UserId:    linkCache.UserID,
+			ShortCode: code,
+			IP:        ip,
+			UserAgent: userAgent,
+			Referer:   referer,
+		}
+		s.analytics.PushClick(newClickData)
+	}()
+
+	http.Redirect(w, r, linkCache.OriginalLink, http.StatusFound)
 }

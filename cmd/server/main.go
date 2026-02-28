@@ -20,12 +20,13 @@ func main() {
 		Level: slog.LevelDebug,
 	}))
 	slog.SetDefault(logger)
-	slog.Info("Starting LinkShortener service...", "port", os.Getenv("PORT"))
 
 	err := godotenv.Load()
 	if err != nil {
 		slog.Warn("Error loading .env file", "error", err)
 	}
+
+	slog.Info("Starting LinkShortener service...", "port", os.Getenv("PORT"))
 
 	clickhouseAddr := os.Getenv("CLICKHOUSE_ADDR")
 	clickhouseUser := os.Getenv("CLICKHOUSE_USER")
@@ -36,6 +37,7 @@ func main() {
 	redisPassword := os.Getenv("REDIS_PASSWORD")
 	tgToken := os.Getenv("TELEGRAM_API_TOKEN")
 	port := os.Getenv("PORT")
+	baseLink := os.Getenv("BASE_LINK")
 
 	if clickhouseAddr == "" ||
 		clickhouseUser == "" ||
@@ -45,7 +47,8 @@ func main() {
 		redisUrl == "" ||
 		redisPassword == "" ||
 		tgToken == "" ||
-		port == "" {
+		port == "" ||
+		baseLink == "" {
 		slog.Error("Missing required environment variables")
 		return
 	}
@@ -75,7 +78,9 @@ func main() {
 	defer analytics.Close()
 	analytics.Start(ctx)
 
-	tgBot, err := bot.NewTelegramBot(tgToken, db, cacheDB, analytics)
+	shortener := service.NewShortener(baseLink, db, cacheDB)
+
+	tgBot, err := bot.NewTelegramBot(tgToken, db, analytics, shortener)
 	if err != nil {
 		slog.Error("Could not initialize bot", "error", err)
 		return
@@ -83,7 +88,7 @@ func main() {
 	botErr := make(chan error, 1)
 	go func() { botErr <- tgBot.Start(ctx) }()
 
-	server := service.NewServer(port, db, cacheDB, analytics)
+	server := service.NewServer(port, analytics, shortener)
 	serverErr := make(chan error, 1)
 	go func() { serverErr <- server.Start(ctx) }()
 
