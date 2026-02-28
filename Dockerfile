@@ -9,7 +9,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o main -trimpath -ldflags="-s -w" ./cmd/server/
 
 FROM alpine:latest
 
@@ -19,5 +19,6 @@ WORKDIR /root/
 
 COPY --from=builder /app/main .
 COPY --from=builder /app/internal/database/migrations ./migrations
+COPY GeoLite2-City.mmdb ./GeoLite2-City.mmdb
 
 CMD ["./main"]

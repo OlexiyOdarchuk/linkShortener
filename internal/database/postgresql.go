@@ -13,8 +13,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
+//go:embed migrations/postgresql/*.sql
+var migrationsPostgreSQLFS embed.FS
 
 type Database struct {
 	db *sqlx.DB
@@ -28,15 +28,15 @@ func ConnectPostgres(url string) (*Database, error) {
 
 	pg := &Database{db: db}
 
-	if err := pg.RunMigrations(); err != nil {
+	if err := pg.runMigrations(); err != nil {
 		return nil, err
 	}
 
 	return pg, nil
 }
 
-func (db *Database) RunMigrations() error {
-	d, err := iofs.New(migrationsFS, "migrations")
+func (db *Database) runMigrations() error {
+	d, err := iofs.New(migrationsPostgreSQLFS, "migrations/postgresql")
 	if err != nil {
 		return err
 	}

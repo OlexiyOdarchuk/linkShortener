@@ -6,10 +6,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/joho/godotenv"
 	"linkshortener/internal/bot"
 	"linkshortener/internal/cache"
 	"linkshortener/internal/database"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -19,7 +20,11 @@ func main() {
 	slog.SetDefault(logger)
 	slog.Info("Starting LinkShortener service...", "port", os.Getenv("PORT"))
 
-	godotenv.Load()
+	err := godotenv.Load()
+	if err != nil {
+		slog.Error("Error loading .env file", "error", err)
+		os.Exit(1)
+	}
 	clickhouseAddr := os.Getenv("CLICKHOUSE_ADDR")
 	clickhouseUser := os.Getenv("CLICKHOUSE_USER")
 	clickhousePassword := os.Getenv("CLICKHOUSE_PASSWORD")
@@ -40,13 +45,13 @@ func main() {
 		tgToken == "" ||
 		port == "" {
 		slog.Error("Missing required environment variables")
-		return
+		os.Exit(1)
 	}
 
 	db, err := database.ConnectPostgres(postgresURL)
 	if err != nil {
 		slog.Error("Could not connect to Postgres", "error", err)
-		return
+		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -60,13 +65,13 @@ func main() {
 	analytics, err := database.ConnectClickHouse(clickhouseAddr, clickhouseUser, clickhousePassword, clickhouseDb)
 	if err != nil {
 		slog.Error("Could not connect to ClickHouse", "error", err)
-		return
+		os.Exit(1)
 	}
-
+	defer analytics.Close()
 	tgBot, err := bot.NewTelegramBot(tgToken, db, cacheDB, analytics)
 	if err != nil {
 		slog.Error("Could not initialize bot", "error", err)
-		return
+		os.Exit(1)
 	}
 
 	go tgBot.Start()
