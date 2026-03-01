@@ -2,8 +2,8 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"embed"
+	"linkshortener/internal/types"
 	"log/slog"
 	"net"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	clickmigrations "github.com/golang-migrate/migrate/v4/database/clickhouse"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/jmoiron/sqlx"
 	"github.com/oschwald/geoip2-golang"
 )
 
@@ -20,8 +21,8 @@ import (
 var migrationsClickHouseFS embed.FS
 
 type Analytics struct {
-	db           *sql.DB
-	clicksBuffer chan ClickData
+	db           *sqlx.DB
+	clicksBuffer chan types.ClickData
 	geo          *geoip2.Reader
 	workerCancel context.CancelFunc
 	workerWG     sync.WaitGroup
@@ -29,16 +30,8 @@ type Analytics struct {
 	closeOnce    sync.Once
 }
 
-type ClickData struct {
-	UserId    int64  `json:"user_id"`
-	ShortCode string `json:"short_code"`
-	IP        string `json:"ip"`
-	UserAgent string `json:"user_agent"`
-	Referer   string `json:"referer"`
-}
-
 func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*Analytics, error) {
-	conn := clickhouse.OpenDB(&clickhouse.Options{
+	db := clickhouse.OpenDB(&clickhouse.Options{
 		Addr: []string{addr},
 		Auth: clickhouse.Auth{
 			Database: dbName,
@@ -50,7 +43,7 @@ func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*A
 			Method: clickhouse.CompressionLZ4,
 		},
 	})
-
+	conn := sqlx.NewDb(db, "clickhouse")
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := conn.PingContext(pingCtx); err != nil {
@@ -65,7 +58,7 @@ func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*A
 
 	a := &Analytics{
 		db:           conn,
-		clicksBuffer: make(chan ClickData, 1000),
+		clicksBuffer: make(chan types.ClickData, 1000),
 		geo:          geodatabase,
 	}
 
@@ -91,7 +84,7 @@ func (a *Analytics) runMigrations() error {
 		return err
 	}
 
-	driver, err := clickmigrations.WithInstance(a.db, &clickmigrations.Config{})
+	driver, err := clickmigrations.WithInstance(a.db.DB, &clickmigrations.Config{})
 	if err != nil {
 		return err
 	}
@@ -115,7 +108,7 @@ func (a *Analytics) runMigrations() error {
 func (a *Analytics) worker(ctx context.Context) {
 	defer a.workerWG.Done()
 
-	var buffer []ClickData
+	var buffer []types.ClickData
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -178,7 +171,7 @@ func (a *Analytics) Close() error {
 	return closeErr
 }
 
-func (a *Analytics) recordClicks(ctx context.Context, clicks []ClickData) error {
+func (a *Analytics) recordClicks(ctx context.Context, clicks []types.ClickData) error {
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -214,7 +207,7 @@ func (a *Analytics) recordClicks(ctx context.Context, clicks []ClickData) error 
 	return tx.Commit()
 }
 
-func (a *Analytics) PushClick(data ClickData) {
+func (a *Analytics) PushClick(data types.ClickData) {
 	if a.workerCancel == nil {
 		slog.Warn("Analytics worker is not started, dropping click data", "link", data.ShortCode)
 		return
@@ -225,4 +218,28 @@ func (a *Analytics) PushClick(data ClickData) {
 	default:
 		slog.Warn("Analytics buffer full, dropping click data", "link", data.ShortCode)
 	}
+}
+
+func (a *Analytics) GetAllAnalytic(ctx context.Context, userId int64) ([]types.Analytic, error) {
+	var clicks []types.Analytic
+	query := `SELECT * FROM clicks WHERE user_id = $1`
+
+	err := a.db.SelectContext(ctx, &clicks, query, userId)
+	if err != nil {
+		return nil, err
+	}
+
+	return clicks, nil
+}
+
+func (a *Analytics) GetAnalyticByCode(ctx context.Context, code string) ([]types.Analytic, error) {
+	var clicks []types.Analytic
+	query := `SELECT * FROM clicks WHERE short_code = $1`
+	err := a.db.SelectContext(ctx, &clicks, query, code)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return clicks, nil
 }

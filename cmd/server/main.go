@@ -78,9 +78,9 @@ func main() {
 	defer analytics.Close()
 	analytics.Start(ctx)
 
-	shortener := service.NewShortener(baseLink, db, cacheDB)
+	shortener := service.NewShortener(db, cacheDB)
 
-	tgBot, err := bot.NewTelegramBot(tgToken, db, analytics, shortener)
+	tgBot, err := bot.NewTelegramBot(baseLink, tgToken, db, analytics, shortener)
 	if err != nil {
 		slog.Error("Could not initialize bot", "error", err)
 		return

@@ -19,13 +19,12 @@ const alphabet = "0123456789qwertyuiopasdfghjklzxcvbnmMNBVCXZLKJHGFDQASWERTYUIOP
 var ErrInvalidCharacter = errors.New("invalid character")
 
 type Shortener struct {
-	baseLink string
 	database *database.Database
 	cache    *cache.Cache
 }
 
-func NewShortener(baseLink string, database *database.Database, cache *cache.Cache) *Shortener {
-	return &Shortener{baseLink: baseLink, database: database, cache: cache}
+func NewShortener(database *database.Database, cache *cache.Cache) *Shortener {
+	return &Shortener{database: database, cache: cache}
 }
 
 func (s *Shortener) CreateNewShortLink(originalLink string, telegramID int64) (string, error) {
@@ -48,11 +47,10 @@ func (s *Shortener) CreateNewShortLink(originalLink string, telegramID int64) (s
 	if err := s.database.SetShortCode(ctx, linkId, code); err != nil {
 		return "", err
 	}
-	shortLink := s.baseLink + "/" + code
 	if err := s.cache.Set(ctx, code, &types.LinkCache{OriginalLink: originalLink, UserID: userId}, 10*time.Minute); err != nil {
 		return "", err
 	}
-	return shortLink, nil
+	return code, nil
 }
 
 func (s *Shortener) GetLinkCacheByCode(ctx context.Context, shortCode string) (*types.LinkCache, error) {

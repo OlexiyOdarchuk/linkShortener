@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"linkshortener/internal/database"
+	"linkshortener/internal/types"
 	"net"
 	"net/http"
 	"strings"
@@ -69,7 +70,7 @@ func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		newClickData := database.ClickData{
+		newClickData := types.ClickData{
 			UserId:    linkCache.UserID,
 			ShortCode: code,
 			IP:        ip,
