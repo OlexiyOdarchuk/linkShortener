@@ -16,7 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const alphabet = "0123456789qwertyuiopasdfghjklzxcvbnmMNBVCXZLKJHGFDQASWERTYUIOP"
+const alphabet = "q1werty8uiop3asdfg4hjkl9zxcvb_n2mMNBVC5XZLKJ6HGFDQ-0ASWERTYU7IOP!"
 
 var ErrInvalidCharacter = errors.New("invalid character")
 var ErrCodeIsBusy = errors.New("code is busy")
@@ -35,7 +35,7 @@ func (s *Shortener) CreateNewShortLink(ctx context.Context, originalLink string,
 	if err != nil {
 		return "", err
 	}
-	shortCode := s.base62Encode(linkId)
+	shortCode := s.base65Encode(linkId)
 
 	for {
 		hasLink, err := s.database.GetLink(ctx, shortCode)
@@ -53,7 +53,7 @@ func (s *Shortener) CreateNewShortLink(ctx context.Context, originalLink string,
 		if err != nil {
 			return "", err
 		}
-		shortCode = s.base62Encode(linkId)
+		shortCode = s.base65Encode(linkId)
 	}
 
 	if err := s.database.SetShortCode(ctx, linkId, shortCode); err != nil {
@@ -131,7 +131,7 @@ func (s *Shortener) GetLinkCacheByCode(ctx context.Context, shortCode string) (*
 	return linkCache, nil
 }
 
-func (s *Shortener) base62Encode(linkId int64) string {
+func (s *Shortener) base65Encode(linkId int64) string {
 	if linkId == 0 {
 		return string(alphabet[0])
 	}
@@ -146,7 +146,7 @@ func (s *Shortener) base62Encode(linkId int64) string {
 	return string(res)
 }
 
-func (s *Shortener) base62Decode(shortCode string) (int64, error) {
+func (s *Shortener) base65Decode(shortCode string) (int64, error) {
 	var res int64
 
 	for _, char := range shortCode {
@@ -163,6 +163,6 @@ func (s *Shortener) base62Decode(shortCode string) (int64, error) {
 }
 
 func (s *Shortener) IsValidShortCode(code string) bool {
-	matched, _ := regexp.MatchString(`^[a-zA-Z0-9\-]{1,20}$`, code)
+	matched, _ := regexp.MatchString(`^[a-zA-Z0-9\-_!~]{1,20}$`, code)
 	return matched
 }
