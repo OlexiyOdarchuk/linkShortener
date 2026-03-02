@@ -106,14 +106,20 @@ func (db *Database) SetShortCode(ctx context.Context, id int64, shortCode string
 }
 
 func (db *Database) UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error {
-	query := `UPDATE links SET original_url = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND short_code = $3`
+	query := `UPDATE links SET original_link = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND short_code = $3`
 	_, err := db.db.ExecContext(ctx, query, newLink, userId, shortCode)
 	return err
 }
 
-func (db *Database) DeleteLink(ctx context.Context, userId int64, shortCode string) error {
+func (db *Database) DeleteLinkByCode(ctx context.Context, userId int64, shortCode string) error {
 	query := `DELETE FROM links WHERE user_id = $1 AND short_code = $2`
 	_, err := db.db.ExecContext(ctx, query, userId, shortCode)
+	return err
+}
+
+func (db *Database) DeleteLinkById(ctx context.Context, userId, linkId int64) error {
+	query := `DELETE FROM links WHERE user_id = $1 AND id = $2`
+	_, err := db.db.ExecContext(ctx, query, userId, linkId)
 	return err
 }
 

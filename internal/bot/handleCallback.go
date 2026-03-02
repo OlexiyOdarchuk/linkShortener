@@ -36,13 +36,51 @@ func (b *TelegramBot) handleCallback(c tele.Context) error {
 		}
 		shortCode := parts[1]
 		slog.Info("stats", "short_code", shortCode, "telegram_id", c.Sender().ID)
-		return b.handleLinkStats(c, shortCode)
+		return b.handleLinkCallback(c, shortCode)
 
 	case "ignore":
 		slog.Info("Ignoring " + unique)
 		return c.Respond()
-	}
 
+	case "delete":
+		if len(parts) < 2 {
+			return c.Respond()
+		}
+		shortCode := parts[1]
+		slog.Info("try_delete", "short_code", shortCode, "telegram_id", c.Sender().ID)
+		return b.handleConfirmDelete(c, shortCode)
+
+	case "confirm":
+		if len(parts) < 2 {
+			return c.Respond()
+		}
+		shortCode := parts[1]
+		slog.Info("full_delete", "short_code", shortCode, "telegram_id", c.Sender().ID)
+		return b.handleDelete(c, shortCode)
+
+	case "cancel":
+		if len(parts) < 2 {
+			return c.Respond()
+		}
+		shortCode := parts[1]
+		slog.Info("cancel", "short_code", shortCode, "telegram_id", c.Sender().ID)
+		return b.handleCancel(c)
+
+	case "update":
+		if len(parts) < 2 {
+			return c.Respond()
+		}
+		shortCode := parts[1]
+		slog.Info("update", "short_code", shortCode, "telegram_id", c.Sender().ID)
+		_ = c.Respond()
+		b.mu.Lock()
+		b.userStates[c.Sender().ID] = UserState{
+			Action: StateEditing,
+			Data:   shortCode,
+		}
+		b.mu.Unlock()
+		return c.Send("📝 Будь ласка, надішліть нове оригінальне посилання для <code>"+shortCode+"</code>:", &tele.SendOptions{ParseMode: tele.ModeHTML})
+	}
 	return c.Respond()
 }
 
@@ -111,7 +149,7 @@ func (b *TelegramBot) sendLinksPage(c tele.Context, page int) error {
 	return c.Send("Ось ваші посилання:", menu)
 }
 
-func (b *TelegramBot) handleLinkStats(c tele.Context, shortCode string) error {
+func (b *TelegramBot) handleLinkCallback(c tele.Context, shortCode string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = c.Respond(&tele.CallbackResponse{Text: "Завантажую статистику для " + shortCode})
@@ -139,7 +177,7 @@ func (b *TelegramBot) handleLinkStats(c tele.Context, shortCode string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("<b>📊 Ваша загальна аналітика</b>\n")
+	sb.WriteString("<b>📊 Ваша аналітика по " + shortCode + "</b>\n")
 	sb.WriteString("Всього переходів: <code>")
 	sb.WriteString(strconv.Itoa(len(analytics)))
 	sb.WriteString("</code>\n\n")
@@ -170,6 +208,48 @@ func (b *TelegramBot) handleLinkStats(c tele.Context, shortCode string) error {
 		sb.WriteString(strconv.Itoa(peakCount))
 		sb.WriteString(" кліків)\n")
 	}
+	menu := &tele.ReplyMarkup{}
+	updateBtn := menu.Data("✍️ Оновити оригінальне посилання", "update", shortCode)
+	deleteBtn := menu.Data("🗑️ Видалити це посилання", "delete", shortCode)
+	menu.Inline(menu.Row(updateBtn), menu.Row(deleteBtn))
 	slog.Info("show shortCode analytics info", "user_id", userId)
-	return c.Send(sb.String(), &tele.SendOptions{ParseMode: tele.ModeHTML})
+	return c.Send(sb.String(), menu, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: menu})
+}
+
+func (b *TelegramBot) handleConfirmDelete(c tele.Context, shortCode string) error {
+	menu := &tele.ReplyMarkup{}
+	btnConfirm := menu.Data("✅ Підтвердити", "confirm", shortCode)
+	btnCancel := menu.Data("❌ Відмінити", "cancel", shortCode)
+	menu.Inline(menu.Row(btnConfirm), menu.Row(btnCancel))
+	_ = c.Respond()
+	return c.Send("Ви впевнені, що хочете видалити посилання "+shortCode+"?", menu)
+}
+
+func (b *TelegramBot) handleDelete(c tele.Context, shortCode string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	userId, err := b.db.GetUserIDByTelegramID(ctx, c.Sender().ID)
+	if err != nil {
+		slog.Error("failed to get user id from db", "telegram_id", c.Sender().ID, "error", err)
+		return err
+	}
+	if err := b.shortener.DeleteLink(ctx, userId, shortCode); err != nil {
+		return err
+	}
+	_ = c.RespondAlert("Успішно видалено")
+	return c.Edit("Успішно видалено посилання " + shortCode)
+}
+
+func (b *TelegramBot) handleCancel(c tele.Context) error {
+	userID := c.Sender().ID
+
+	b.mu.Lock()
+	delete(b.userStates, userID)
+	b.mu.Unlock()
+
+	if c.Callback() != nil {
+		return c.RespondAlert("Відміна")
+	}
+
+	return c.Send("Відміна")
 }

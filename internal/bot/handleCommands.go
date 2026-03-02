@@ -118,3 +118,10 @@ func (b *TelegramBot) handleMyLinks(c tele.Context) error {
 	slog.Info("command /my_links received", "telegram_id", c.Sender().ID)
 	return b.sendLinksPage(c, 0)
 }
+
+func (b *TelegramBot) handleCustomLink(c tele.Context) error {
+	b.mu.Lock()
+	b.userStates[c.Sender().ID] = UserState{Action: StateWaitingLink}
+	b.mu.Unlock()
+	return c.Send("🔗 Надішліть довге посилання, яке хочете скоротити:")
+}

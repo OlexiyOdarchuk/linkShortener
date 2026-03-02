@@ -2,11 +2,13 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"linkshortener/internal/cache"
 	"linkshortener/internal/database"
 	"linkshortener/internal/types"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +19,7 @@ import (
 const alphabet = "0123456789qwertyuiopasdfghjklzxcvbnmMNBVCXZLKJHGFDQASWERTYUIOP"
 
 var ErrInvalidCharacter = errors.New("invalid character")
+var ErrCodeIsBusy = errors.New("code is busy")
 
 type Shortener struct {
 	database *database.Database
@@ -27,30 +30,77 @@ func NewShortener(database *database.Database, cache *cache.Cache) *Shortener {
 	return &Shortener{database: database, cache: cache}
 }
 
-func (s *Shortener) CreateNewShortLink(originalLink string, telegramID int64) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := s.database.CreateUser(ctx, telegramID); err != nil {
-		return "", err
-	}
-
-	userId, err := s.database.GetUserIDByTelegramID(ctx, telegramID)
-	if err != nil {
-		return "", err
-	}
+func (s *Shortener) CreateNewShortLink(ctx context.Context, originalLink string, userId int64) (string, error) {
 	linkId, err := s.database.CreateLink(ctx, userId, originalLink)
 	if err != nil {
 		return "", err
 	}
-	code := s.base62Encode(linkId)
-	if err := s.database.SetShortCode(ctx, linkId, code); err != nil {
+	shortCode := s.base62Encode(linkId)
+
+	for {
+		hasLink, err := s.database.GetLink(ctx, shortCode)
+		if hasLink == nil && errors.Is(err, sql.ErrNoRows) {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		err = s.database.DeleteLinkById(ctx, userId, linkId)
+		if err != nil {
+			return "", err
+		}
+		linkId, err = s.database.CreateLink(ctx, userId, originalLink)
+		if err != nil {
+			return "", err
+		}
+		shortCode = s.base62Encode(linkId)
+	}
+
+	if err := s.database.SetShortCode(ctx, linkId, shortCode); err != nil {
 		return "", err
 	}
-	if err := s.cache.Set(ctx, code, &types.LinkCache{OriginalLink: originalLink, UserID: userId}, 10*time.Minute); err != nil {
+	if err := s.cache.Set(ctx, shortCode, &types.LinkCache{OriginalLink: originalLink, UserID: userId}, 10*time.Minute); err != nil {
 		return "", err
 	}
-	return code, nil
+	return shortCode, nil
+}
+
+func (s *Shortener) CreateNewCustomShortLink(ctx context.Context, originalLink, shortCode string, userId int64) error {
+	hasCode, err := s.database.GetLink(ctx, shortCode)
+	if hasCode != nil && err == nil {
+		return ErrCodeIsBusy
+	}
+
+	linkId, err := s.database.CreateLink(ctx, userId, originalLink)
+	if err != nil {
+		return err
+	}
+
+	if err := s.database.SetShortCode(ctx, linkId, shortCode); err != nil {
+		return err
+	}
+	if err := s.cache.Set(ctx, shortCode, &types.LinkCache{OriginalLink: originalLink, UserID: userId}, 10*time.Minute); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shortener) DeleteLink(ctx context.Context, userId int64, shortCode string) error {
+	if err := s.database.DeleteLinkByCode(ctx, userId, shortCode); err != nil {
+		return err
+	}
+	if err := s.cache.Delete(ctx, shortCode); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Shortener) UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error {
+	if err := s.database.UpdateLink(ctx, userId, shortCode, newLink); err != nil {
+		return err
+	}
+	return s.cache.Update(ctx, shortCode, &types.LinkCache{OriginalLink: newLink, UserID: userId}, 10*time.Minute)
 }
 
 func (s *Shortener) GetLinkCacheByCode(ctx context.Context, shortCode string) (*types.LinkCache, error) {
@@ -110,4 +160,9 @@ func (s *Shortener) base62Decode(shortCode string) (int64, error) {
 	}
 
 	return res, nil
+}
+
+func (s *Shortener) IsValidShortCode(code string) bool {
+	matched, _ := regexp.MatchString(`^[a-zA-Z0-9\-]{1,20}$`, code)
+	return matched
 }

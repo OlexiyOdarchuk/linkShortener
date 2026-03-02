@@ -59,6 +59,14 @@ func (c *Cache) Delete(ctx context.Context, shortCode string) error {
 	return c.rdb.Del(ctx, codePrefix+shortCode).Err()
 }
 
+func (c *Cache) Update(ctx context.Context, shortCode string, cache *types.LinkCache, expiration time.Duration) error {
+	err := c.rdb.Del(ctx, codePrefix+shortCode).Err()
+	if err != nil {
+		return err
+	}
+	return c.Set(ctx, codePrefix+shortCode, cache, expiration)
+}
+
 func (c *Cache) Close() error {
 	return c.rdb.Close()
 }
