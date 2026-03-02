@@ -232,10 +232,10 @@ func (a *Analytics) GetAllAnalytic(ctx context.Context, userId int64) ([]types.A
 	return clicks, nil
 }
 
-func (a *Analytics) GetAnalyticByCode(ctx context.Context, code string) ([]types.Analytic, error) {
+func (a *Analytics) GetAnalyticByCode(ctx context.Context, code string, userId int64) ([]types.Analytic, error) {
 	var clicks []types.Analytic
-	query := `SELECT * FROM clicks WHERE short_code = $1`
-	err := a.db.SelectContext(ctx, &clicks, query, code)
+	query := `SELECT * FROM clicks WHERE short_code = $1 AND user_id = $2`
+	err := a.db.SelectContext(ctx, &clicks, query, code, userId)
 
 	if err != nil {
 		return nil, err
