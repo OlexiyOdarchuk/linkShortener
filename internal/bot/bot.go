@@ -100,7 +100,7 @@ func (b *TelegramBot) Start(ctx context.Context) error {
 	return nil
 }
 
-func getTopStats(stats map[string]int, limit int) string {
+func (b *TelegramBot) getTopStats(stats map[string]int, limit int) string {
 	type entry struct {
 		key   string
 		count int

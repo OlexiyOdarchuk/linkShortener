@@ -1,12 +1,14 @@
 package bot
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/skip2/go-qrcode"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -80,6 +82,18 @@ func (b *TelegramBot) handleCallback(c tele.Context) error {
 		}
 		b.mu.Unlock()
 		return c.Send("📝 Будь ласка, надішліть нове оригінальне посилання для <code>"+shortCode+"</code>:", &tele.SendOptions{ParseMode: tele.ModeHTML})
+	case "qr":
+		if len(parts) < 2 {
+			return c.Respond()
+		}
+		shortCode := parts[1]
+		slog.Info("qr", "short_code", shortCode, "telegram_id", c.Sender().ID)
+		_ = c.Respond()
+		qrc, err := b.getQrCode(shortCode)
+		if err != nil {
+			return c.Send("Помилка отримання qr-code")
+		}
+		return c.Send(qrc)
 	}
 	return c.Respond()
 }
@@ -183,13 +197,13 @@ func (b *TelegramBot) handleLinkCallback(c tele.Context, shortCode string) error
 	sb.WriteString("</code>\n\n")
 
 	sb.WriteString("\n<b>🌍 Географія:</b>\n")
-	sb.WriteString(getTopStats(countryStats, 8))
+	sb.WriteString(b.getTopStats(countryStats, 8))
 
 	sb.WriteString("\n<b>🏙 Міста:</b>\n")
-	sb.WriteString(getTopStats(cityStats, 8))
+	sb.WriteString(b.getTopStats(cityStats, 8))
 
 	sb.WriteString("\n<b>🌐 Джерела (Referer):</b>\n")
-	sb.WriteString(getTopStats(refererStats, 8))
+	sb.WriteString(b.getTopStats(refererStats, 8))
 
 	peakHour, peakCount := -1, 0
 	for hour, count := range clickedAtStats {
@@ -211,7 +225,12 @@ func (b *TelegramBot) handleLinkCallback(c tele.Context, shortCode string) error
 	menu := &tele.ReplyMarkup{}
 	updateBtn := menu.Data("✍️ Оновити оригінальне посилання", "update", shortCode)
 	deleteBtn := menu.Data("🗑️ Видалити це посилання", "delete", shortCode)
-	menu.Inline(menu.Row(updateBtn), menu.Row(deleteBtn))
+	qrBtn := menu.Data("🖼 Отримати QR-код", "qr", shortCode)
+	menu.Inline(
+		menu.Row(updateBtn),
+		menu.Row(deleteBtn),
+		menu.Row(qrBtn),
+	)
 	slog.Info("show shortCode analytics info", "user_id", userId)
 	return c.Send(sb.String(), menu, &tele.SendOptions{ParseMode: tele.ModeHTML, ReplyMarkup: menu})
 }
@@ -252,4 +271,18 @@ func (b *TelegramBot) handleCancel(c tele.Context) error {
 	}
 
 	return c.Send("Відміна")
+}
+
+func (b *TelegramBot) getQrCode(shortCode string) (*tele.Photo, error) {
+	fullLink := b.baseLink + "/" + shortCode
+	qrc, err := qrcode.Encode(fullLink, qrcode.Medium, 256)
+	if err != nil {
+		slog.Error("failed to generate qrcode", "shortCode", shortCode, "error", err)
+		return nil, err
+	}
+	photo := &tele.Photo{
+		File:    tele.FromReader(bytes.NewReader(qrc)),
+		Caption: "🖼 Ось ваше посилання і QR-код для нього: " + fullLink,
+	}
+	return photo, nil
 }

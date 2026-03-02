@@ -37,8 +37,12 @@ func (b *TelegramBot) handleNewLink(c tele.Context) error {
 		slog.Error("failed to create short link", "error", err)
 		return c.Send("❌ Помилка при створенні посилання. Спробуйте ще раз")
 	}
-
-	return c.Send("✅ Ось ваше нове скорочене посилання:\n" + b.baseLink + "/" + shortCode)
+	qrc, err := b.getQrCode(shortCode)
+	if err != nil {
+		slog.Error("failed to get qrcode", "error", err)
+		return c.Send("✅ Ось ваше нове скорочене посилання:\n" + b.baseLink + "/" + shortCode)
+	}
+	return c.Send(qrc)
 }
 
 func (b *TelegramBot) handleLink(c tele.Context) error {
@@ -91,8 +95,12 @@ func (b *TelegramBot) handleLink(c tele.Context) error {
 			b.mu.Lock()
 			delete(b.userStates, userTelegramID)
 			b.mu.Unlock()
-
-			return c.Send("✅ Готово! Ваше посилання:\n" + b.baseLink + "/" + customCode)
+			qrc, err := b.getQrCode(customCode)
+			if err != nil {
+				slog.Error("failed to get qrcode", "error", err)
+				return c.Send("✅ Готово! Ваше посилання:\n" + b.baseLink + "/" + customCode)
+			}
+			return c.Send(qrc)
 
 		case StateEditing:
 			newLink := text

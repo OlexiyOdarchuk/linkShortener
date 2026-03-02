@@ -82,16 +82,16 @@ func (b *TelegramBot) handleAllAnalytics(c tele.Context) error {
 	sb.WriteString("</code>\n\n")
 
 	sb.WriteString("<b>🔗 Популярні коди:</b>\n")
-	sb.WriteString(getTopStats(shortCodeStats, 8))
+	sb.WriteString(b.getTopStats(shortCodeStats, 8))
 
 	sb.WriteString("\n<b>🌍 Географія:</b>\n")
-	sb.WriteString(getTopStats(countryStats, 5))
+	sb.WriteString(b.getTopStats(countryStats, 5))
 
 	sb.WriteString("\n<b>🏙 Міста:</b>\n")
-	sb.WriteString(getTopStats(cityStats, 5))
+	sb.WriteString(b.getTopStats(cityStats, 5))
 
 	sb.WriteString("\n<b>🌐 Джерела (Referer):</b>\n")
-	sb.WriteString(getTopStats(refererStats, 5))
+	sb.WriteString(b.getTopStats(refererStats, 5))
 
 	peakHour, peakCount := -1, 0
 	for hour, count := range clickedAtStats {
