@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	customerrs "linkshortener/internal/customErrs"
-	"linkshortener/internal/database"
+	"linkshortener/internal/types"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,11 +13,18 @@ import (
 
 const alphabet = "q1werty8uiop3asdfg4hjkl9zxcvb_n2mMNBVC5XZLKJ6HGFDQ-0ASWERTYU7IOP!"
 
+//go:generate mockgen -source=shortener.go -destination=mock_shortener_db_test.go -package=service
+type ShortenerDB interface {
+	DeleteLinkById(ctx context.Context, userId, linkId int64) error
+	SetShortCode(ctx context.Context, id int64, shortCode string) error
+	CreateLink(ctx context.Context, userID int64, originalLink string) (int64, error)
+	GetLinkCacheByCode(ctx context.Context, shortCode string) (*types.LinkCache, error)
+}
 type Shortener struct {
-	database *database.Database
+	database ShortenerDB
 }
 
-func NewShortener(database *database.Database) *Shortener {
+func NewShortener(database ShortenerDB) *Shortener {
 	return &Shortener{database: database}
 }
 

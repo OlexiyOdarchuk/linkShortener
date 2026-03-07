@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"linkshortener/internal/database"
 	"linkshortener/internal/types"
 	"net"
 	"net/http"
@@ -12,13 +11,19 @@ import (
 	"time"
 )
 
+//go:generate mockgen -source=server.go -destination=mock_server_db_test.go -package=service
+type ServerDB interface {
+	GetLinkCacheByCode(ctx context.Context, shortCode string) (*types.LinkCache, error)
+	PushClick(data types.ClickData)
+}
+
 type Server struct {
 	port      string
-	db        *database.Database
+	db        ServerDB
 	shortener *Shortener
 }
 
-func NewServer(port string, db *database.Database, shortener *Shortener) *Server {
+func NewServer(port string, db ServerDB, shortener *Shortener) *Server {
 	return &Server{
 		port:      port,
 		db:        db,

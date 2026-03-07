@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+//go:generate mockgen -destination=mock_analytics_test.go -package=database . Analytics
+//go:generate mockgen -destination=mock_cache_test.go -package=database . Cache
+//go:generate mockgen -destination=mock_users_repo_test.go -package=database . UsersRepo
+//go:generate mockgen -destination=mock_links_repo_test.go -package=database . LinksRepo
+//go:generate mockgen -destination=mock_sql_test.go -package=database . SQL
+
 type Analytics interface {
 	Start(ctx context.Context)
 	PushClick(data types.ClickData)
@@ -25,17 +31,25 @@ type Cache interface {
 	Close() error
 }
 
-type SQL interface {
+type UsersRepo interface {
 	CreateUser(ctx context.Context, telegramID int64) error
+	GetUserIDByTelegramID(ctx context.Context, telegramID int64) (int64, error)
+}
+
+type LinksRepo interface {
 	CreateLink(ctx context.Context, userID int64, originalLink string) (int64, error)
 	SetShortCode(ctx context.Context, id int64, shortCode string) error
 	GetLink(ctx context.Context, shortCode string) (*types.LinkCache, error)
-	GetUserIDByTelegramID(ctx context.Context, telegramID int64) (int64, error)
 	GetAllLinksByUser(ctx context.Context, userId int64) ([]types.LinkData, error)
 	UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error
 	DeleteLinkByCode(ctx context.Context, userId int64, shortCode string) error
 	DeleteLinkById(ctx context.Context, userId, linkId int64) error
 	DeleteAllLinksByUser(ctx context.Context, userId int64) error
+}
+
+type SQL interface {
+	UsersRepo
+	LinksRepo
 	Close() error
 }
 
@@ -73,7 +87,7 @@ func (d *Database) UpdateLink(ctx context.Context, userId int64, shortCode, newL
 	return d.cache.Update(ctx, shortCode, &types.LinkCache{OriginalLink: newLink, UserID: userId}, 10*time.Minute)
 }
 
-func (d *Database) DeleteLink(ctx context.Context, userId int64, shortCode string) error {
+func (d *Database) DeleteLinkByCode(ctx context.Context, userId int64, shortCode string) error {
 	if err := d.sql.DeleteLinkByCode(ctx, userId, shortCode); err != nil {
 		return err
 	}

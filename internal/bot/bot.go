@@ -2,8 +2,7 @@ package bot
 
 import (
 	"context"
-	"linkshortener/internal/database"
-	"linkshortener/internal/service"
+	"linkshortener/internal/types"
 	"log/slog"
 	"sort"
 	"strconv"
@@ -14,13 +13,31 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
+//go:generate mockgen -destination=mock_database_test.go -package=bot . Database
+type Database interface {
+	CreateUser(ctx context.Context, telegramID int64) error
+	UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error
+	GetUserIDByTelegramID(ctx context.Context, telegramID int64) (int64, error)
+	GetAnalyticByCode(ctx context.Context, code string, userId int64) ([]types.Analytic, error)
+	GetAllAnalytic(ctx context.Context, userId int64) ([]types.Analytic, error)
+	DeleteLinkByCode(ctx context.Context, userId int64, shortCode string) error
+	GetAllLinksByUser(ctx context.Context, userId int64) ([]types.LinkData, error)
+}
+
+//go:generate mockgen -destination=mock_shortener_test.go -package=bot . Shortener
+type Shortener interface {
+	CreateNewShortLink(ctx context.Context, originalLink string, userId int64) (string, error)
+	CreateNewCustomShortLink(ctx context.Context, originalLink, shortCode string, userId int64) error
+	IsValidShortCode(code string) bool
+}
+
 type TelegramBot struct {
 	baseLink   string
 	tgBot      *tele.Bot
 	userStates map[int64]UserState
-	db         *database.Database
-	shortener  *service.Shortener
-	mu         *sync.RWMutex
+	db         Database
+	shortener  Shortener
+	mu         sync.RWMutex
 }
 
 const (
@@ -34,7 +51,7 @@ type UserState struct {
 	Data   string
 }
 
-func NewTelegramBot(baseLink, tgToken string, db *database.Database, shortener *service.Shortener) (*TelegramBot, error) {
+func NewTelegramBot(baseLink, tgToken string, db Database, shortener Shortener) (*TelegramBot, error) {
 	pref := tele.Settings{
 		Token:  tgToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -52,7 +69,7 @@ func NewTelegramBot(baseLink, tgToken string, db *database.Database, shortener *
 		userStates: make(map[int64]UserState),
 		db:         db,
 		shortener:  shortener,
-		mu:         &sync.RWMutex{},
+		mu:         sync.RWMutex{},
 	}
 
 	return b, nil

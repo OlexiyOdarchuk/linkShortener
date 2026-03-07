@@ -252,7 +252,7 @@ func (b *TelegramBot) handleDelete(c tele.Context, shortCode string) error {
 		slog.Error("failed to get user id from db", "telegram_id", c.Sender().ID, "error", err)
 		return err
 	}
-	if err := b.db.DeleteLink(ctx, userId, shortCode); err != nil {
+	if err := b.db.DeleteLinkByCode(ctx, userId, shortCode); err != nil {
 		return err
 	}
 	_ = c.RespondAlert("Успішно видалено")
