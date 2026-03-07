@@ -55,7 +55,7 @@ func (b *TelegramBot) handleAllAnalytics(c tele.Context) error {
 		return c.Send("Помилка бази даних.")
 	}
 
-	analytics, err := b.analytic.GetAllAnalytic(ctx, userId)
+	analytics, err := b.db.GetAllAnalytic(ctx, userId)
 	if err != nil {
 		slog.Error("failed to get analytics from db", "user_id", userId)
 		return c.Send("Помилка отримання аналітики.")

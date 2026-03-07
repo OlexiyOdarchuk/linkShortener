@@ -1,4 +1,4 @@
-package database
+package postgresql
 
 import (
 	"context"
@@ -14,20 +14,20 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )
 
-//go:embed migrations/postgresql/*.sql
+//go:embed migrations/*.sql
 var migrationsPostgreSQLFS embed.FS
 
-type Database struct {
+type PostgreSQL struct {
 	db *sqlx.DB
 }
 
-func ConnectPostgres(ctx context.Context, url string) (*Database, error) {
+func Connect(ctx context.Context, url string) (*PostgreSQL, error) {
 	db, err := sqlx.ConnectContext(ctx, "postgres", url)
 	if err != nil {
 		return nil, err
 	}
 
-	pg := &Database{db: db}
+	pg := &PostgreSQL{db: db}
 
 	if err := pg.runMigrations(); err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func ConnectPostgres(ctx context.Context, url string) (*Database, error) {
 	return pg, nil
 }
 
-func (db *Database) runMigrations() error {
+func (db *PostgreSQL) runMigrations() error {
 	d, err := iofs.New(migrationsPostgreSQLFS, "migrations/postgresql")
 	if err != nil {
 		return err
@@ -62,11 +62,11 @@ func (db *Database) runMigrations() error {
 	return nil
 }
 
-func (db *Database) Close() error {
+func (db *PostgreSQL) Close() error {
 	return db.db.Close()
 }
 
-func (db *Database) CreateUser(ctx context.Context, telegramID int64) error {
+func (db *PostgreSQL) CreateUser(ctx context.Context, telegramID int64) error {
 	query := `
 		INSERT INTO users (telegram_id) VALUES ($1)
 		ON CONFLICT (telegram_id) DO UPDATE SET telegram_id = EXCLUDED.telegram_id;`
@@ -74,56 +74,56 @@ func (db *Database) CreateUser(ctx context.Context, telegramID int64) error {
 	return err
 }
 
-func (db *Database) GetUserIDByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
+func (db *PostgreSQL) GetUserIDByTelegramID(ctx context.Context, telegramID int64) (int64, error) {
 	var id int64
 	err := db.db.GetContext(ctx, &id, "SELECT id FROM users WHERE telegram_id = $1", telegramID)
 	return id, err
 }
 
-func (db *Database) GetAllLinksByUser(ctx context.Context, userId int64) ([]types.LinkData, error) {
+func (db *PostgreSQL) GetAllLinksByUser(ctx context.Context, userId int64) ([]types.LinkData, error) {
 	query := `SELECT * FROM links WHERE user_id = $1`
 	var links []types.LinkData
 	err := db.db.SelectContext(ctx, &links, query, userId)
 	return links, err
 }
-func (db *Database) DeleteAllLinksByUser(ctx context.Context, userId int64) error {
+func (db *PostgreSQL) DeleteAllLinksByUser(ctx context.Context, userId int64) error {
 	query := `DELETE FROM links WHERE user_id = $1`
 	_, err := db.db.ExecContext(ctx, query, userId)
 	return err
 }
 
-func (db *Database) CreateLink(ctx context.Context, userID int64, originalLink string) (int64, error) {
+func (db *PostgreSQL) CreateLink(ctx context.Context, userID int64, originalLink string) (int64, error) {
 	var id int64
 	query := `INSERT INTO links (user_id, original_link, short_code) VALUES ($1, $2, '') RETURNING id`
 	err := db.db.QueryRowContext(ctx, query, userID, originalLink).Scan(&id)
 	return id, err
 }
 
-func (db *Database) SetShortCode(ctx context.Context, id int64, shortCode string) error {
+func (db *PostgreSQL) SetShortCode(ctx context.Context, id int64, shortCode string) error {
 	query := `UPDATE links SET short_code = $1 WHERE id = $2`
 	_, err := db.db.ExecContext(ctx, query, shortCode, id)
 	return err
 }
 
-func (db *Database) UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error {
+func (db *PostgreSQL) UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error {
 	query := `UPDATE links SET original_link = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND short_code = $3`
 	_, err := db.db.ExecContext(ctx, query, newLink, userId, shortCode)
 	return err
 }
 
-func (db *Database) DeleteLinkByCode(ctx context.Context, userId int64, shortCode string) error {
+func (db *PostgreSQL) DeleteLinkByCode(ctx context.Context, userId int64, shortCode string) error {
 	query := `DELETE FROM links WHERE user_id = $1 AND short_code = $2`
 	_, err := db.db.ExecContext(ctx, query, userId, shortCode)
 	return err
 }
 
-func (db *Database) DeleteLinkById(ctx context.Context, userId, linkId int64) error {
+func (db *PostgreSQL) DeleteLinkById(ctx context.Context, userId, linkId int64) error {
 	query := `DELETE FROM links WHERE user_id = $1 AND id = $2`
 	_, err := db.db.ExecContext(ctx, query, userId, linkId)
 	return err
 }
 
-func (db *Database) GetLink(ctx context.Context, shortCode string) (*types.LinkCache, error) {
+func (db *PostgreSQL) GetLink(ctx context.Context, shortCode string) (*types.LinkCache, error) {
 	query := `SELECT original_link, user_id FROM links WHERE short_code = $1`
 	var linkCache types.LinkCache
 	err := db.db.GetContext(ctx, &linkCache, query, shortCode)

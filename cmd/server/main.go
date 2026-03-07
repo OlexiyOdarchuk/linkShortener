@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"linkshortener/internal/database"
+	"linkshortener/internal/database/clickhouse"
+	"linkshortener/internal/database/postgresql"
+	"linkshortener/internal/database/redis"
 	"linkshortener/internal/service"
 	"log/slog"
 	"os"
@@ -9,8 +13,6 @@ import (
 	"syscall"
 
 	"linkshortener/internal/bot"
-	"linkshortener/internal/cache"
-	"linkshortener/internal/database"
 
 	"github.com/joho/godotenv"
 )
@@ -56,21 +58,21 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	db, err := database.ConnectPostgres(ctx, postgresURL)
+	sql, err := postgresql.Connect(ctx, postgresURL)
 	if err != nil {
 		slog.Error("Could not connect to Postgres", "error", err)
 		return
 	}
-	defer db.Close()
+	defer sql.Close()
 
-	cacheDB, err := cache.ConnectRedis(redisUrl, redisPassword)
+	cache, err := redis.Connect(redisUrl, redisPassword)
 	if err != nil {
 		slog.Error("Could not connect to Redis", "error", err)
 		return
 	}
-	defer cacheDB.Close()
+	defer cache.Close()
 
-	analytics, err := database.ConnectClickHouse(ctx, clickhouseAddr, clickhouseUser, clickhousePassword, clickhouseDb)
+	analytics, err := clickhouse.Connect(clickhouseAddr, clickhouseUser, clickhousePassword, clickhouseDb)
 	if err != nil {
 		slog.Error("Could not connect to ClickHouse", "error", err)
 		return
@@ -78,9 +80,11 @@ func main() {
 	defer analytics.Close()
 	analytics.Start(ctx)
 
-	shortener := service.NewShortener(db, cacheDB)
+	db := database.CreateDatabase(ctx, analytics, sql, cache)
 
-	tgBot, err := bot.NewTelegramBot(baseLink, tgToken, db, analytics, shortener)
+	shortener := service.NewShortener(db)
+
+	tgBot, err := bot.NewTelegramBot(baseLink, tgToken, db, shortener)
 	if err != nil {
 		slog.Error("Could not initialize bot", "error", err)
 		return
@@ -88,7 +92,7 @@ func main() {
 	botErr := make(chan error, 1)
 	go func() { botErr <- tgBot.Start(ctx) }()
 
-	server := service.NewServer(port, analytics, shortener)
+	server := service.NewServer(port, db, shortener)
 	serverErr := make(chan error, 1)
 	go func() { serverErr <- server.Start(ctx) }()
 

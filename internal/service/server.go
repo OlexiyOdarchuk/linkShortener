@@ -14,14 +14,14 @@ import (
 
 type Server struct {
 	port      string
-	analytics *database.Analytics
+	db        *database.Database
 	shortener *Shortener
 }
 
-func NewServer(port string, analytics *database.Analytics, shortener *Shortener) *Server {
+func NewServer(port string, db *database.Database, shortener *Shortener) *Server {
 	return &Server{
 		port:      port,
-		analytics: analytics,
+		db:        db,
 		shortener: shortener,
 	}
 }
@@ -59,7 +59,7 @@ func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 	ip := s.getClientIP(r)
 	userAgent := r.UserAgent()
 	referer := r.Referer()
-	linkCache, err := s.shortener.GetLinkCacheByCode(ctx, code)
+	linkCache, err := s.db.GetLinkCacheByCode(ctx, code)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
@@ -77,7 +77,7 @@ func (s *Server) handlerRedirect(w http.ResponseWriter, r *http.Request) {
 			UserAgent: userAgent,
 			Referer:   referer,
 		}
-		s.analytics.PushClick(newClickData)
+		s.db.PushClick(newClickData)
 	}()
 
 	http.Redirect(w, r, linkCache.OriginalLink, http.StatusFound)

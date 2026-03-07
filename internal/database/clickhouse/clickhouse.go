@@ -1,4 +1,4 @@
-package database
+package clickhouse
 
 import (
 	"context"
@@ -17,10 +17,10 @@ import (
 	"github.com/oschwald/geoip2-golang"
 )
 
-//go:embed migrations/clickhouse/*.sql
+//go:embed migrations/*.sql
 var migrationsClickHouseFS embed.FS
 
-type Analytics struct {
+type ClickHouse struct {
 	db           *sqlx.DB
 	clicksBuffer chan types.ClickData
 	geo          *geoip2.Reader
@@ -30,7 +30,7 @@ type Analytics struct {
 	closeOnce    sync.Once
 }
 
-func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*Analytics, error) {
+func Connect(addr, user, pass, dbName string) (*ClickHouse, error) {
 	db := clickhouse.OpenDB(&clickhouse.Options{
 		Addr: []string{addr},
 		Auth: clickhouse.Auth{
@@ -44,7 +44,7 @@ func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*A
 		},
 	})
 	conn := sqlx.NewDb(db, "clickhouse")
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := conn.PingContext(pingCtx); err != nil {
 		slog.Error("failed to ping database", "err", err)
@@ -56,7 +56,7 @@ func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*A
 		return nil, err
 	}
 
-	a := &Analytics{
+	a := &ClickHouse{
 		db:           conn,
 		clicksBuffer: make(chan types.ClickData, 1000),
 		geo:          geodatabase,
@@ -69,7 +69,7 @@ func ConnectClickHouse(ctx context.Context, addr, user, pass, dbName string) (*A
 	return a, nil
 }
 
-func (a *Analytics) Start(ctx context.Context) {
+func (a *ClickHouse) Start(ctx context.Context) {
 	a.startOnce.Do(func() {
 		workerCtx, cancel := context.WithCancel(ctx)
 		a.workerCancel = cancel
@@ -78,7 +78,7 @@ func (a *Analytics) Start(ctx context.Context) {
 	})
 }
 
-func (a *Analytics) runMigrations() error {
+func (a *ClickHouse) runMigrations() error {
 	d, err := iofs.New(migrationsClickHouseFS, "migrations/clickhouse")
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (a *Analytics) runMigrations() error {
 	return nil
 }
 
-func (a *Analytics) worker(ctx context.Context) {
+func (a *ClickHouse) worker(ctx context.Context) {
 	defer a.workerWG.Done()
 
 	var buffer []types.ClickData
@@ -150,7 +150,7 @@ func (a *Analytics) worker(ctx context.Context) {
 	}
 }
 
-func (a *Analytics) Close() error {
+func (a *ClickHouse) Close() error {
 	var closeErr error
 
 	a.closeOnce.Do(func() {
@@ -171,7 +171,7 @@ func (a *Analytics) Close() error {
 	return closeErr
 }
 
-func (a *Analytics) recordClicks(ctx context.Context, clicks []types.ClickData) error {
+func (a *ClickHouse) recordClicks(ctx context.Context, clicks []types.ClickData) error {
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func (a *Analytics) recordClicks(ctx context.Context, clicks []types.ClickData) 
 	return tx.Commit()
 }
 
-func (a *Analytics) PushClick(data types.ClickData) {
+func (a *ClickHouse) PushClick(data types.ClickData) {
 	if a.workerCancel == nil {
 		slog.Warn("Analytics worker is not started, dropping click data", "link", data.ShortCode)
 		return
@@ -220,7 +220,7 @@ func (a *Analytics) PushClick(data types.ClickData) {
 	}
 }
 
-func (a *Analytics) GetAllAnalytic(ctx context.Context, userId int64) ([]types.Analytic, error) {
+func (a *ClickHouse) GetAllAnalytic(ctx context.Context, userId int64) ([]types.Analytic, error) {
 	var clicks []types.Analytic
 	query := `SELECT * FROM clicks WHERE user_id = $1`
 
@@ -232,7 +232,7 @@ func (a *Analytics) GetAllAnalytic(ctx context.Context, userId int64) ([]types.A
 	return clicks, nil
 }
 
-func (a *Analytics) GetAnalyticByCode(ctx context.Context, code string, userId int64) ([]types.Analytic, error) {
+func (a *ClickHouse) GetAnalyticByCode(ctx context.Context, code string, userId int64) ([]types.Analytic, error) {
 	var clicks []types.Analytic
 	query := `SELECT * FROM clicks WHERE short_code = $1 AND user_id = $2`
 	err := a.db.SelectContext(ctx, &clicks, query, code, userId)

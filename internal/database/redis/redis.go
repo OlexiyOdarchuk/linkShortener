@@ -1,21 +1,23 @@
-package cache
+package redis
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	customerrs "linkshortener/internal/customErrs"
 	"linkshortener/internal/types"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-type Cache struct {
+type Redis struct {
 	rdb *redis.Client
 }
 
 const codePrefix = "code:"
 
-func ConnectRedis(url, password string) (*Cache, error) {
+func Connect(url, password string) (*Redis, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     url,
 		Password: password,
@@ -29,11 +31,15 @@ func ConnectRedis(url, password string) (*Cache, error) {
 		return nil, err
 	}
 
-	return &Cache{rdb: rdb}, nil
+	return &Redis{rdb: rdb}, nil
 }
 
-func (c *Cache) Get(ctx context.Context, shortCode string) (*types.LinkCache, error) {
+func (c *Redis) Get(ctx context.Context, shortCode string) (*types.LinkCache, error) {
 	val, err := c.rdb.Get(ctx, codePrefix+shortCode).Result()
+
+	if errors.Is(err, redis.Nil) {
+		return nil, customerrs.ErrNoFound
+	}
 
 	if err != nil {
 		return nil, err
@@ -47,7 +53,7 @@ func (c *Cache) Get(ctx context.Context, shortCode string) (*types.LinkCache, er
 	return data, nil
 }
 
-func (c *Cache) Set(ctx context.Context, shortCode string, cache *types.LinkCache, expiration time.Duration) error {
+func (c *Redis) Set(ctx context.Context, shortCode string, cache *types.LinkCache, expiration time.Duration) error {
 	data, err := json.Marshal(cache)
 	if err != nil {
 		return err
@@ -55,18 +61,22 @@ func (c *Cache) Set(ctx context.Context, shortCode string, cache *types.LinkCach
 	return c.rdb.Set(ctx, codePrefix+shortCode, data, expiration).Err()
 }
 
-func (c *Cache) Delete(ctx context.Context, shortCode string) error {
+func (c *Redis) Delete(ctx context.Context, shortCode string) error {
 	return c.rdb.Del(ctx, codePrefix+shortCode).Err()
 }
 
-func (c *Cache) Update(ctx context.Context, shortCode string, cache *types.LinkCache, expiration time.Duration) error {
-	err := c.rdb.Del(ctx, codePrefix+shortCode).Err()
+func (c *Redis) Update(ctx context.Context, shortCode string, cache *types.LinkCache, expiration time.Duration) error {
+	_, err := c.Get(ctx, shortCode)
+	if err != nil {
+		return err
+	}
+	err = c.Delete(ctx, codePrefix+shortCode)
 	if err != nil {
 		return err
 	}
 	return c.Set(ctx, codePrefix+shortCode, cache, expiration)
 }
 
-func (c *Cache) Close() error {
+func (c *Redis) Close() error {
 	return c.rdb.Close()
 }

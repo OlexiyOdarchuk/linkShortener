@@ -172,7 +172,7 @@ func (b *TelegramBot) handleLinkCallback(c tele.Context, shortCode string) error
 		slog.Error("failed to get user id from db", "user_id", userId)
 		return c.Send("Помилка звернення до бази даних.")
 	}
-	analytics, err := b.analytic.GetAnalyticByCode(ctx, shortCode, userId)
+	analytics, err := b.db.GetAnalyticByCode(ctx, shortCode, userId)
 	if err != nil {
 		slog.Error("failed to get analytic from db", "user_id", userId)
 		return c.Send("Помилка отримання аналітики.")
@@ -252,7 +252,7 @@ func (b *TelegramBot) handleDelete(c tele.Context, shortCode string) error {
 		slog.Error("failed to get user id from db", "telegram_id", c.Sender().ID, "error", err)
 		return err
 	}
-	if err := b.shortener.DeleteLink(ctx, userId, shortCode); err != nil {
+	if err := b.db.DeleteLink(ctx, userId, shortCode); err != nil {
 		return err
 	}
 	_ = c.RespondAlert("Успішно видалено")

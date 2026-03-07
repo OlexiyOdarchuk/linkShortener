@@ -4,30 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"linkshortener/internal/cache"
+	customerrs "linkshortener/internal/customErrs"
 	"linkshortener/internal/database"
-	"linkshortener/internal/types"
-	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
 const alphabet = "q1werty8uiop3asdfg4hjkl9zxcvb_n2mMNBVC5XZLKJ6HGFDQ-0ASWERTYU7IOP!"
 
-var ErrInvalidCharacter = errors.New("invalid character")
-var ErrCodeIsBusy = errors.New("code is busy")
-
 type Shortener struct {
 	database *database.Database
-	cache    *cache.Cache
 }
 
-func NewShortener(database *database.Database, cache *cache.Cache) *Shortener {
-	return &Shortener{database: database, cache: cache}
+func NewShortener(database *database.Database) *Shortener {
+	return &Shortener{database: database}
 }
 
 func (s *Shortener) CreateNewShortLink(ctx context.Context, originalLink string, userId int64) (string, error) {
@@ -38,7 +29,7 @@ func (s *Shortener) CreateNewShortLink(ctx context.Context, originalLink string,
 	shortCode := s.base65Encode(linkId)
 
 	for {
-		hasLink, err := s.database.GetLink(ctx, shortCode)
+		hasLink, err := s.database.GetLinkCacheByCode(ctx, shortCode)
 		if hasLink == nil && errors.Is(err, sql.ErrNoRows) {
 			break
 		}
@@ -59,16 +50,13 @@ func (s *Shortener) CreateNewShortLink(ctx context.Context, originalLink string,
 	if err := s.database.SetShortCode(ctx, linkId, shortCode); err != nil {
 		return "", err
 	}
-	if err := s.cache.Set(ctx, shortCode, &types.LinkCache{OriginalLink: originalLink, UserID: userId}, 10*time.Minute); err != nil {
-		return "", err
-	}
 	return shortCode, nil
 }
 
 func (s *Shortener) CreateNewCustomShortLink(ctx context.Context, originalLink, shortCode string, userId int64) error {
-	hasCode, err := s.database.GetLink(ctx, shortCode)
+	hasCode, err := s.database.GetLinkCacheByCode(ctx, shortCode)
 	if hasCode != nil && err == nil {
-		return ErrCodeIsBusy
+		return customerrs.ErrCodeIsBusy
 	}
 
 	linkId, err := s.database.CreateLink(ctx, userId, originalLink)
@@ -79,56 +67,8 @@ func (s *Shortener) CreateNewCustomShortLink(ctx context.Context, originalLink, 
 	if err := s.database.SetShortCode(ctx, linkId, shortCode); err != nil {
 		return err
 	}
-	if err := s.cache.Set(ctx, shortCode, &types.LinkCache{OriginalLink: originalLink, UserID: userId}, 10*time.Minute); err != nil {
-		return err
-	}
 
 	return nil
-}
-
-func (s *Shortener) DeleteLink(ctx context.Context, userId int64, shortCode string) error {
-	if err := s.database.DeleteLinkByCode(ctx, userId, shortCode); err != nil {
-		return err
-	}
-	if err := s.cache.Delete(ctx, shortCode); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *Shortener) UpdateLink(ctx context.Context, userId int64, shortCode, newLink string) error {
-	if err := s.database.UpdateLink(ctx, userId, shortCode, newLink); err != nil {
-		return err
-	}
-	return s.cache.Update(ctx, shortCode, &types.LinkCache{OriginalLink: newLink, UserID: userId}, 10*time.Minute)
-}
-
-func (s *Shortener) GetLinkCacheByCode(ctx context.Context, shortCode string) (*types.LinkCache, error) {
-	var err error
-	var linkCache *types.LinkCache
-	linkCache, err = s.cache.Get(ctx, shortCode)
-
-	if err == nil {
-		return linkCache, nil
-	}
-
-	if !errors.Is(err, redis.Nil) {
-		slog.Warn("Redis error", "error", err)
-	}
-
-	linkCache, err = s.database.GetLink(ctx, shortCode)
-
-	if err != nil {
-		slog.Error("Database error", "error", err)
-		return nil, err
-	}
-
-	if err = s.cache.Set(ctx, shortCode, linkCache, 10*time.Minute); err != nil {
-		slog.Warn("Failed to warm up cache", "error", err)
-		return linkCache, err
-	}
-
-	return linkCache, nil
 }
 
 func (s *Shortener) base65Encode(linkId int64) string {
@@ -153,7 +93,7 @@ func (s *Shortener) base65Decode(shortCode string) (int64, error) {
 		index := strings.IndexRune(alphabet, char)
 
 		if index == -1 {
-			return 0, ErrInvalidCharacter
+			return 0, customerrs.ErrInvalidCharacter
 		}
 
 		res = res*62 + int64(index)

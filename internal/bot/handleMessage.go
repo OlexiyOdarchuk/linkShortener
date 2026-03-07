@@ -3,7 +3,7 @@ package bot
 import (
 	"context"
 	"errors"
-	"linkshortener/internal/service"
+	customerrs "linkshortener/internal/customErrs"
 	"log/slog"
 	"net/url"
 	"time"
@@ -84,7 +84,7 @@ func (b *TelegramBot) handleLink(c tele.Context) error {
 			}
 
 			err = b.shortener.CreateNewCustomShortLink(ctx, longURL, customCode, userId)
-			if errors.Is(err, service.ErrCodeIsBusy) {
+			if errors.Is(err, customerrs.ErrCodeIsBusy) {
 				return c.Send("❌ Це ім'я вже зайняте. Спробуйте інше:")
 			}
 			if err != nil {
@@ -123,7 +123,7 @@ func (b *TelegramBot) handleLink(c tele.Context) error {
 				return c.Send("Помилка звернення до бази даних.")
 			}
 
-			if err := b.shortener.UpdateLink(ctx, userId, state.Data, newLink); err != nil {
+			if err := b.db.UpdateLink(ctx, userId, state.Data, newLink); err != nil {
 				slog.Error("failed to update link", "error", err)
 				return c.Send("⚠️ Не вдалося оновити посилання в базі.")
 			}

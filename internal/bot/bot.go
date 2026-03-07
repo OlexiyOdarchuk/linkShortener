@@ -19,7 +19,6 @@ type TelegramBot struct {
 	tgBot      *tele.Bot
 	userStates map[int64]UserState
 	db         *database.Database
-	analytic   *database.Analytics
 	shortener  *service.Shortener
 	mu         *sync.RWMutex
 }
@@ -35,7 +34,7 @@ type UserState struct {
 	Data   string
 }
 
-func NewTelegramBot(baseLink, tgToken string, db *database.Database, analytics *database.Analytics, shortener *service.Shortener) (*TelegramBot, error) {
+func NewTelegramBot(baseLink, tgToken string, db *database.Database, shortener *service.Shortener) (*TelegramBot, error) {
 	pref := tele.Settings{
 		Token:  tgToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -52,7 +51,6 @@ func NewTelegramBot(baseLink, tgToken string, db *database.Database, analytics *
 		tgBot:      bot,
 		userStates: make(map[int64]UserState),
 		db:         db,
-		analytic:   analytics,
 		shortener:  shortener,
 		mu:         &sync.RWMutex{},
 	}
